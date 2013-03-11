@@ -1,0 +1,20 @@
+Source: fping
+Section: net
+Priority: optional
+Maintainer: Anibal Monsalve Salazar <anibal@debian.org>
+Standards-Version: 3.8.0
+Build-Depends: debhelper (>= 5)
+Homepage: http://fping.sourceforge.net/
+
+Package: fping
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Conflicts: suidmanager (<< 0.50)
+Replaces: netstd
+Description: sends ICMP ECHO_REQUEST packets to network hosts
+ fping is a ping like program which uses the Internet Control Message Protocol
+ (ICMP) echo request to determine if a target host is responding.  fping
+ differs from ping in that you can specify any number of targets on the command
+ line, or specify a file containing the lists of targets to ping.  Instead of
+ sending to one target until it times out or replies, fping will send out a
+ ping packet and move on to the next target in a round-robin fashion.

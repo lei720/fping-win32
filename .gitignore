@@ -1,0 +1,6 @@
+*.o
+*.obj
+/config.h
+/config.log
+/config.status
+/stamp-h

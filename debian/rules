@@ -1,0 +1,78 @@
+#!/usr/bin/make -f
+# GNU copyright 1997 to 1999 by Joey Hess.
+# Copyright (c) 1999 Herbert Xu <herbert@debian.org>
+# Copyright (c) 2004-2005 Anibal Monsalve Salazar <anibal@debian.org>
+
+# Uncomment this to turn on verbose mode.
+export DH_VERBOSE=1
+
+configure: configure-stamp
+configure-stamp:
+	dh_testdir
+
+	mkdir build build/ipv4 build/ipv6
+	cp -a $$(find * -maxdepth 0 ! -name build) build
+	cd build/ipv4; ../configure
+	cd build/ipv6; ../configure
+
+	touch configure-stamp
+
+build: build-stamp
+build-stamp: configure-stamp
+	dh_testdir
+
+	$(MAKE) -C build/ipv4
+	$(MAKE) -C build/ipv6 CFLAGS='-g -O2 -DIPV6=1'
+
+	touch build-stamp
+
+clean:
+	dh_testdir
+	dh_testroot
+
+	rm -rf build build-stamp configure-stamp
+
+	dh_clean
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs
+
+	install build/ipv4/fping debian/fping/usr/bin
+	install build/ipv6/fping debian/fping/usr/bin/fping6
+	cp fping.8 debian/fping/usr/share/man/man8
+	ln -s fping.8 debian/fping/usr/share/man/man8/fping6.8
+
+	install -g 0 -o 0 -m 644 -p debian/lintian.overrides debian/fping/usr/share/lintian/overrides/fping
+
+	touch install-stamp
+
+# Build architecture-independent files here.
+binary-indep: build install
+# We have nothing to do by default.
+
+# Build architecture-dependent files here.
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_installdocs
+	dh_installexamples
+	dh_installmenu
+	dh_installcron
+	dh_installinfo
+	dh_installchangelogs ChangeLog
+	dh_link
+	dh_strip
+	dh_compress
+	dh_fixperms
+	chmod 4755 debian/fping/usr/bin/fping*
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+binary: binary-indep binary-arch
+.PHONY: build clean configure binary-indep binary-arch binary install
