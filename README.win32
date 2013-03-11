@@ -1,0 +1,9 @@
+win32.h:	copy from linux.h
+getopt.c:	copy from android bionic's libc/unistd/getopt_long.c, with little changed
+
+How to Compile on unix-like platform:
+	shell> ./configure
+	shell> make
+
+How to Compile on win32 platform: (Microsoft Visual Studio Express)
+	cmd> nmake

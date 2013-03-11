@@ -55,6 +55,55 @@ extern "C"
 {
 #endif /* __cplusplus */
 
+#ifdef _WIN32
+#define WIN32
+#undef UNICODE
+#undef _NO_PROTO
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <stdio.h>
+#include <errno.h>
+#include <signal.h>
+#include <stddef.h>
+#include <time.h>
+#include "win32.h"
+
+#define VERSION "2.4b2_to"
+#pragma comment(lib, "ws2_32.lib")
+#ifndef DEBUG
+#pragma warning(disable:4018)
+#pragma warning(disable:4100)
+#pragma warning(disable:4101)
+#pragma warning(disable:4113)
+#pragma warning(disable:4127)
+#pragma warning(disable:4244)
+#pragma warning(disable:4389)
+#pragma warning(disable:4706)
+#pragma warning(disable:4996)
+#endif
+
+#define random rand
+#define srandom srand
+#define getpid GetCurrentThreadId
+#define h_errno WSAGetLastError()
+
+struct timezone {
+	int tz_minuteswest;
+	int tz_dsttime;
+};
+
+typedef unsigned int uid_t;
+
+static int getuid();
+static int geteuid();
+static int seteuid(uid_t euid);
+
+int getopt(int nargc, char * const *nargv, const char *options);
+
+static int gettimeofday(struct timeval* tv, struct timezone *tz);
+
+#endif
+
 /* if compiling for Windows, use this separate set
   (too difficult to ifdef all the autoconf defines) */
 #ifdef WIN32
@@ -119,7 +168,9 @@ extern "C"
 
 extern char *optarg;
 extern int optind,opterr;
+#ifndef _WIN32
 extern int h_errno;
+#endif
 
 #ifdef __cplusplus
 }
@@ -418,6 +469,15 @@ int main( int argc, char **argv )
 #else
 	struct sockaddr_in6 sa;
 #endif
+
+#ifdef _WIN32
+	WSADATA wsaData;
+	if ( WSAStartup(MAKEWORD(2, 2), &wsaData) )
+	{
+		errno_crash_and_burn( "can't WSAStartup." );
+	}
+#endif
+
 	/* check if we are root */
 
 	if( geteuid() )
@@ -680,7 +740,12 @@ int main( int argc, char **argv )
 
 		case 'S':
 #ifndef IPV6
+#ifndef _WIN32
 			if( ! inet_pton( AF_INET, optarg, &src_addr ) )
+#else
+			src_addr.s_addr = inet_addr( optarg );
+			if ( src_addr.s_addr == INADDR_NONE || src_addr.s_addr == INADDR_ANY )
+#endif
 #else
 			if( ! inet_pton( AF_INET6, optarg, &src_addr ) )
 #endif
@@ -910,8 +975,8 @@ int main( int argc, char **argv )
 		char* pCopy;
 		char* pTemp;
 
-		struct in_addr sStart;
-		struct in_addr sEnd;
+		struct in_addr sStart = { 0 };
+		struct in_addr sEnd = { 0 };
 		int iBits;
 		int iBitpos;
 		int iMask = 1;
@@ -1578,6 +1643,7 @@ void send_ping( int s, HOST_ENTRY *h )
 	FPING_ICMPHDR *icp;
 	PING_DATA *pdp;
 	int n;
+	int myseq;
 
 	buffer = ( char* )malloc( ( size_t )ping_pkt_size );
 	if( !buffer )
@@ -1587,7 +1653,7 @@ void send_ping( int s, HOST_ENTRY *h )
 	icp = ( FPING_ICMPHDR* )buffer;
 
 	gettimeofday( &h->last_send_time, &tz );
-	int myseq = h->num_sent * num_hosts + h->i;
+	myseq = h->num_sent * num_hosts + h->i;
 	max_seq_sent = myseq > max_seq_sent ? myseq : max_seq_sent;
 
 #ifndef IPV6
@@ -2842,3 +2908,84 @@ void usage( void )
 	exit( 3 );
 
 } /* usage() */
+
+#ifdef _WIN32
+
+#ifndef SUPPORTXP
+/*
+ * GetSystemTimeAsFileTime under windows xp has a accuracy of 10-16ms.
+ */
+static int gettimeofday(struct timeval* tv, struct timezone *tz)
+{
+	FILETIME ft;
+	ULARGE_INTEGER epoch, ts;
+
+	// 100-nanosecond since January 1, 1601 (UTC).
+	GetSystemTimeAsFileTime(&ft);
+
+	// Jan 1, 1970 (UTC).
+	epoch.LowPart = 0xD53E8000;
+	epoch.HighPart = 0x19DB1DE;
+
+	ts.LowPart = ft.dwLowDateTime;
+	ts.HighPart = ft.dwHighDateTime;
+	ts.QuadPart -= epoch.QuadPart;
+
+	tv->tv_usec = (ts.QuadPart / 10) % 1000000;
+	tv->tv_sec = (long)(ts.QuadPart / 10000000);
+	return 0;
+}
+#else
+/*
+ * As GetSystemTimeAsFileTime under windows xp has a accuracy of 10-16ms,
+ * so I decides to use QueryPerformanceCounter/QueryPerformanceFrequency.
+ * */
+static int gettimeofday(struct timeval* tv, struct timezone *tz)
+{
+	ULONGLONG usec;
+	LARGE_INTEGER now;
+	static LARGE_INTEGER start, time = {0}, freq = {0};
+
+	while (freq.QuadPart == 0) {
+		QueryPerformanceFrequency(&freq);
+		QueryPerformanceCounter(&start);
+		{
+			FILETIME ft;
+			ULARGE_INTEGER epoch, ts;
+
+			// 100-nanosecond since January 1, 1601 (UTC).
+			GetSystemTimeAsFileTime(&ft);
+
+			// Jan 1, 1970 (UTC).
+			epoch.LowPart = 0xD53E8000;
+			epoch.HighPart = 0x19DB1DE;
+
+			ts.LowPart = ft.dwLowDateTime;
+			ts.HighPart = ft.dwHighDateTime;
+			time.QuadPart = ts.QuadPart - epoch.QuadPart;
+		}
+	}
+
+	QueryPerformanceCounter(&now);
+	usec = time.QuadPart + 10000000 * (now.QuadPart - start.QuadPart) / freq.QuadPart;
+	tv->tv_usec = (usec / 10) % 1000000;
+	tv->tv_sec = (long)(usec / 10000000);
+	return 0;
+}
+#endif
+
+static int getuid()
+{
+	return 0;
+}
+
+static int geteuid()
+{
+	return 0;
+}
+
+static int seteuid(uid_t euid)
+{
+	return 0;
+}
+#endif
